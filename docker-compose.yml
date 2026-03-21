@@ -1,0 +1,53 @@
+version: '3.8'
+
+# DOCKER EXPLAINED: Docker lets you run services (MongoDB) in
+# "containers" — isolated boxes on your computer. IPFS uses Pinata
+# (online) — no local node needed.
+
+services:
+  # MongoDB: regular database for storing user profiles, property metadata
+  mongodb:
+    image: mongo:7.0
+    container_name: land_registry_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"   # localhost:27017 → inside container:27017
+    volumes:
+      - mongo_data:/data/db   # data persists even if container restarts
+    environment:
+      MONGO_INITDB_DATABASE: land_registry
+
+  # Backend API (Express): the regular web server / receptionist
+  backend:
+    build: ./backend
+    container_name: land_registry_backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongodb:27017/land_registry
+      - IPFS_GATEWAY_URL=${IPFS_GATEWAY_URL:-https://gateway.pinata.cloud}
+      - PINATA_API_KEY=${PINATA_API_KEY}
+      - PINATA_SECRET_API_KEY=${PINATA_SECRET_API_KEY}
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # Frontend (React): the website
+  frontend:
+    build: ./frontend
+    container_name: land_registry_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  mongo_data:
+

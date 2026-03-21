@@ -1,0 +1,22 @@
+/*
+ * BLOCKCHAIN EXPLAINED: tsconfig.json (contracts)
+ * ==============================================
+ * Hardhat scripts/tests are written in TypeScript. This file tells TypeScript:
+ * - Which JS features are allowed
+ * - How module imports work
+ * - That importing JSON (deployments/*.json) is allowed
+ */
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "outDir": "dist"
+  },
+  "include": ["./hardhat.config.ts", "./scripts", "./test", "./typechain-types"]
+}
+

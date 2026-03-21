@@ -1,0 +1,26 @@
+{
+  "name": "blockchain-land-registry",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "contracts"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:blockchain\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:blockchain": "cd contracts && npx hardhat node",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "test": "npm run test --workspaces",
+    "build": "npm run build --workspaces",
+    "deploy:local": "cd contracts && npx hardhat run scripts/deploy.ts --network localhost",
+    "deploy:sepolia": "cd contracts && npx hardhat run scripts/deploy.ts --network sepolia",
+    "seed:local": "cd contracts && npx hardhat run scripts/seed.ts --network localhost"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
+
