@@ -37,12 +37,11 @@ app.use((req, res, next) => {
     const start = Date.now();
     res.on("finish", () => {
         const duration = Date.now() - start;
-        logger.info({
-            method: req.method,
-            url: req.originalUrl,
-            status: res.statusCode,
-            duration: `${duration}ms`,
-        });
+
+        // FIX: use a template string instead of passing a plain object
+        logger.info(
+            `${req.method} ${req.originalUrl} → ${res.statusCode} (${duration}ms)`
+        );
     });
     next();
 });

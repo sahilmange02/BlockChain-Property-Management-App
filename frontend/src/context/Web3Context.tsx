@@ -70,7 +70,7 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
     const ethereum = (window as unknown as { ethereum?: { request: (args: unknown) => Promise<unknown> } }).ethereum;
     if (!ethereum) return;
 
-    const config = TARGET_CHAIN_ID === 11155111 ? SEPOLIA_NETWORK_CONFIG : HARDHAT_NETWORK_CONFIG;
+    const config = HARDHAT_NETWORK_CONFIG;
 
     try {
       await ethereum.request({
