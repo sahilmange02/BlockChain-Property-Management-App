@@ -1,164 +1,234 @@
-/*
- * ADMIN PANEL
- * ============
- * User management, full audit log, system health.
- * Audit log entries come from blockchain events synced to MongoDB.
- */
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import api from "@/services/api";
-import { BlockchainAddressBadge } from "@/components/BlockchainAddressBadge";
-import { Database, Cpu, HardDrive } from "lucide-react";
+import toast from "react-hot-toast";
+import { adminApi } from "../api/admin.api";
+import LoadingSpinner from "../components/common/LoadingSpinner";
+import { Loader } from "lucide-react";
 
-const blockExplorerUrl = import.meta.env.VITE_BLOCK_EXPLORER_URL || "https://sepolia.etherscan.io";
-const isLocal = import.meta.env.VITE_CHAIN_ID === "31337";
+type Tab = "users" | "analytics" | "audit";
 
-export function AdminPanel() {
-  const { data: users } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: async () => {
-      const { data } = await api.get<{ users: unknown[] }>("/admin/users");
-      return data.users;
-    },
+export default function AdminPanel() {
+  const [tab, setTab] = useState<Tab>("users");
+
+  const [auditEventType, setAuditEventType] = useState("");
+  const [auditPropertyId, setAuditPropertyId] = useState("");
+  const [applied, setApplied] = useState<{ eventType?: string; propertyId?: number; page: number; limit: number }>({
+    eventType: undefined,
+    propertyId: undefined,
+    page: 1,
+    limit: 20,
   });
 
-  const { data: audit } = useQuery({
-    queryKey: ["admin-audit"],
-    queryFn: async () => {
-      const { data } = await api.get<{ entries: unknown[] }>("/admin/audit-log?limit=50");
-      return data.entries;
-    },
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users", 1, 10],
+    queryFn: () => adminApi.getUsers(1, 10),
+    enabled: tab === "users",
   });
 
-  const { data: health } = useQuery({
-    queryKey: ["health"],
-    queryFn: async () => {
-      const base = import.meta.env.VITE_API_URL?.replace("/api", "") || "http://localhost:5000";
-      const { data } = await fetch(`${base}/ready`).then((r) => r.json());
-      return data;
-    },
+  const analyticsQuery = useQuery({
+    queryKey: ["admin", "analytics"],
+    queryFn: adminApi.getAnalytics,
+    enabled: tab === "analytics",
   });
+
+  const auditQuery = useQuery({
+    queryKey: ["admin", "audit-log", applied],
+    queryFn: () =>
+      adminApi.getAuditLog({
+        page: applied.page,
+        limit: applied.limit,
+        eventType: applied.eventType,
+        propertyId: applied.propertyId,
+      }),
+    enabled: tab === "audit",
+  });
+
+  const audit = auditQuery.data?.entries || [];
+
+  const analytics = analyticsQuery.data;
+  const users = usersQuery.data?.users || [];
+
+  const filterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (auditEventType) parts.push(`eventType=${auditEventType}`);
+    if (auditPropertyId) parts.push(`propertyId=${auditPropertyId}`);
+    return parts.length ? parts.join(" • ") : "No filters";
+  }, [auditEventType, auditPropertyId]);
 
   return (
-    <div className="min-h-screen">
-      <nav className="border-b border-gray-800 bg-primary p-4">
-        <h1 className="text-xl font-bold text-white">Admin Panel</h1>
-      </nav>
-
-      <div className="max-w-6xl mx-auto p-6 space-y-8">
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">System Health</h2>
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="p-4 bg-surface rounded-lg border border-gray-800 flex items-center gap-3">
-              <Database className="w-8 h-8 text-accent" />
-              <div>
-                <p className="text-gray-500 text-sm">MongoDB</p>
-                <p className={health?.mongodb === "connected" ? "text-emerald-400" : "text-red-400"}>
-                  {health?.mongodb ?? "unknown"}
-                </p>
-              </div>
-            </div>
-            <div className="p-4 bg-surface rounded-lg border border-gray-800 flex items-center gap-3">
-              <Cpu className="w-8 h-8 text-accent" />
-              <div>
-                <p className="text-gray-500 text-sm">Ethereum</p>
-                <p className={health?.blockchain === "connected" ? "text-emerald-400" : "text-red-400"}>
-                  {health?.blockchain ?? "unknown"}
-                </p>
-              </div>
-            </div>
-            <div className="p-4 bg-surface rounded-lg border border-gray-800 flex items-center gap-3">
-              <HardDrive className="w-8 h-8 text-accent" />
-              <div>
-                <p className="text-gray-500 text-sm">IPFS</p>
-                <p className={health?.ipfs === "ok" ? "text-emerald-400" : "text-red-400"}>
-                  {health?.ipfs ?? "unknown"}
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">User Management</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-gray-500 text-sm border-b border-gray-800">
-                  <th className="pb-3">Name</th>
-                  <th className="pb-3">Email</th>
-                  <th className="pb-3">Role</th>
-                  <th className="pb-3">KYC</th>
-                  <th className="pb-3">Wallet</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(users ?? []).map((u: unknown) => {
-                  const row = u as { _id: string; name: string; email: string; role: string; kycStatus: string; walletAddress?: string };
-                  return (
-                  <tr key={row._id} className="border-b border-gray-800">
-                    <td className="py-4">{row.name}</td>
-                    <td className="py-4">{row.email}</td>
-                    <td className="py-4">{row.role}</td>
-                    <td className="py-4">{row.kycStatus}</td>
-                    <td className="py-4">
-                      {row.walletAddress ? (
-                        <BlockchainAddressBadge address={row.walletAddress} showLink={false} />
-                      ) : (
-                        <span className="text-gray-500">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ); })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-4">Audit Log</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-gray-500 text-sm border-b border-gray-800">
-                  <th className="pb-3">Event</th>
-                  <th className="pb-3">Property</th>
-                  <th className="pb-3">From</th>
-                  <th className="pb-3">To</th>
-                  <th className="pb-3">TxHash</th>
-                  <th className="pb-3">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(audit ?? []).map((e: unknown) => {
-                  const evt = e as { _id: string; eventType: string; propertyId: number; fromAddress?: string; toAddress?: string; txHash: string; timestamp: string };
-                  return (
-                  <tr key={evt._id} className="border-b border-gray-800">
-                    <td className="py-4">{evt.eventType}</td>
-                    <td className="py-4">#{evt.propertyId}</td>
-                    <td className="py-4 font-mono text-xs">{evt.fromAddress?.slice(0, 10)}...</td>
-                    <td className="py-4 font-mono text-xs">{evt.toAddress?.slice(0, 10)}...</td>
-                    <td className="py-4">
-                      {evt.txHash && (
-                        <a
-                          href={isLocal ? "#" : `${blockExplorerUrl}/tx/${evt.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-accent hover:underline font-mono text-xs"
-                        >
-                          {evt.txHash.slice(0, 10)}...
-                        </a>
-                      )}
-                    </td>
-                    <td className="py-4 text-sm text-gray-500">
-                      {new Date(evt.timestamp).toLocaleString()}
-                    </td>
-                  </tr>
-                ); })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">Admin Panel</h1>
+        <p className="text-gray-400 mt-1">Users, analytics, and audit log</p>
       </div>
+
+      <div className="flex gap-1 bg-gray-900 p-1 rounded-lg w-fit mb-6">
+        <button
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "users" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
+          onClick={() => setTab("users")}
+        >
+          Users
+        </button>
+        <button
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "analytics" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
+          onClick={() => setTab("analytics")}
+        >
+          Analytics
+        </button>
+        <button
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "audit" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
+          onClick={() => setTab("audit")}
+        >
+          Audit Log
+        </button>
+      </div>
+
+      {tab === "users" ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          {usersQuery.isLoading ? (
+            <div className="p-8 text-center text-gray-400">
+              <LoadingSpinner label="Loading..." />
+            </div>
+          ) : users.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">No users</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800 text-gray-400 text-left">
+                <tr>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Email</th>
+                  <th className="px-4 py-3">Role</th>
+                  <th className="px-4 py-3">KYC</th>
+                  <th className="px-4 py-3">Wallet</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {usersQuery.data?.users.map((u) => (
+                  <tr key={u.email} className="text-gray-300 hover:bg-gray-800/50">
+                    <td className="px-4 py-3">{u.name}</td>
+                    <td className="px-4 py-3">{u.email}</td>
+                    <td className="px-4 py-3 font-medium">{u.role}</td>
+                    <td className="px-4 py-3 text-xs">{u.kycStatus || "-"}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{u.walletAddress ? `${u.walletAddress.slice(0, 10)}...` : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : null}
+
+      {tab === "analytics" ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          {analyticsQuery.isLoading ? (
+            <div className="text-gray-400">
+              <Loader className="animate-spin" size={16} />
+            </div>
+          ) : analyticsQuery.error ? (
+            <div className="text-red-400">Failed to load analytics.</div>
+          ) : analytics ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-4 bg-gray-950/30 border border-gray-800 rounded-lg">
+                <div className="text-gray-400 text-sm">Total Properties</div>
+                <div className="text-2xl font-bold text-white">{analytics.totalProperties}</div>
+              </div>
+              <div className="p-4 bg-gray-950/30 border border-gray-800 rounded-lg">
+                <div className="text-gray-400 text-sm">Pending Verifications</div>
+                <div className="text-2xl font-bold text-white">{analytics.pendingVerifications}</div>
+              </div>
+              <div className="p-4 bg-gray-950/30 border border-gray-800 rounded-lg">
+                <div className="text-gray-400 text-sm">Total Transfers</div>
+                <div className="text-2xl font-bold text-white">{analytics.totalTransfers}</div>
+              </div>
+
+              <div className="sm:col-span-3 mt-2">
+                <h2 className="text-white font-semibold mb-2">Recent Activity</h2>
+                <div className="space-y-2">
+                  {analytics.recentActivity.slice(0, 5).map((e) => (
+                    <div key={e.txHash} className="p-3 bg-gray-950/30 border border-gray-800 rounded-lg">
+                      <div className="text-white text-sm font-semibold">{e.eventType}</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        propertyId={e.propertyId} • tx: <span className="font-mono text-indigo-400">{e.txHash}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === "audit" ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="p-4 border-b border-gray-800">
+            <div className="text-gray-200 font-semibold mb-2">Filters: {filterSummary}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <input
+                className="input-field"
+                value={auditEventType}
+                onChange={(e) => setAuditEventType(e.target.value)}
+                placeholder="eventType (optional)"
+              />
+              <input
+                className="input-field"
+                value={auditPropertyId}
+                onChange={(e) => setAuditPropertyId(e.target.value)}
+                placeholder="propertyId (optional)"
+              />
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const pid = auditPropertyId.trim() ? Number(auditPropertyId.trim()) : undefined;
+                  setApplied({
+                    eventType: auditEventType.trim() ? auditEventType.trim() : undefined,
+                    propertyId: pid && Number.isFinite(pid) ? pid : undefined,
+                    page: 1,
+                    limit: 20,
+                  });
+                  toast.success("Applied filters");
+                }}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+
+          {auditQuery.isLoading ? (
+            <div className="p-8 text-center text-gray-400">
+              <LoadingSpinner label="Loading..." />
+            </div>
+          ) : audit.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">No audit entries.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800 text-gray-400 text-left">
+                <tr>
+                  <th className="px-4 py-3">Event Type</th>
+                  <th className="px-4 py-3">Property ID</th>
+                  <th className="px-4 py-3">From</th>
+                  <th className="px-4 py-3">To</th>
+                  <th className="px-4 py-3">Tx Hash</th>
+                  <th className="px-4 py-3">Timestamp</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {audit.map((e) => (
+                  <tr key={e.txHash} className="text-gray-300 hover:bg-gray-800/50">
+                    <td className="px-4 py-3 font-medium">{e.eventType}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{e.propertyId}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{e.fromAddress ? `${e.fromAddress.slice(0, 10)}...` : "-"}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{e.toAddress ? `${e.toAddress.slice(0, 10)}...` : "-"}</td>
+                    <td className="px-4 py-3 font-mono text-indigo-400 text-xs">{e.txHash.slice(0, 12)}...</td>
+                    <td className="px-4 py-3 text-xs">{e.timestamp ? new Date(e.timestamp).toLocaleString() : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
+

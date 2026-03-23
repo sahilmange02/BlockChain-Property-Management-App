@@ -1,124 +1,130 @@
-/*
- * PROPERTY DETAIL PAGE
- * ====================
- * Shows property metadata (from backend) and on-chain data side-by-side
- * for verification. The blockchain is the source of truth for ownership.
- */
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import api from "@/services/api";
-import { useAuth } from "@/context/AuthContext";
-import { IPFSDocumentViewer, IPFSCIDBadge } from "@/components/IPFSDocumentViewer";
-import { StatusBadge } from "@/components/StatusBadge";
-import { BlockchainAddressBadge } from "@/components/BlockchainAddressBadge";
-import { AuditTimeline } from "@/components/AuditTimeline";
-import { ArrowRight } from "lucide-react";
-import type { AuditLog } from "@/types";
+import type { AuditEntry } from "../types";
+import { propertyApi } from "../api/property.api";
+import { useAuth } from "../context/AuthContext";
+import { getIPFSGatewayUrl } from "../api/axios";
+import toast from "react-hot-toast";
 
-export function PropertyDetailPage() {
-  const { id } = useParams<{ id: string }>();
+export default function PropertyDetailPage() {
+  const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const propertyId = id ? parseInt(id, 10) : null;
+  const propertyId = Number(id);
 
-  const { data, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ["property", propertyId],
-    queryFn: async () => {
-      const { data } = await api.get<{
-        property: Record<string, unknown>;
-        onChain?: Record<string, unknown>;
-        audit?: AuditLog[];
-      }>(`/properties/${propertyId}`);
-      return data;
+    queryFn: () => {
+      if (!Number.isFinite(propertyId)) throw new Error("Invalid property id");
+      return propertyApi.getById(propertyId);
     },
-    enabled: !!propertyId,
+    enabled: Number.isFinite(propertyId) && propertyId > 0,
   });
 
-  const property = data?.property;
-  const onChain = data?.onChain;
-  const auditData = data?.audit ?? [];
-  const isOwner = !!(user?.walletAddress && property?.ownerWallet &&
-    String(property.ownerWallet).toLowerCase() === user.walletAddress.toLowerCase());
+  const property = query.data?.property;
+  const onChain = query.data?.onChain;
+  const audit = (query.data?.audit || []) as AuditEntry[];
 
-  if (isLoading || !property) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin w-10 h-10 border-2 border-accent border-t-transparent rounded-full" />
-      </div>
-    );
-  }
+  if (query.isLoading) return <div className="text-gray-400 p-8">Loading...</div>;
+  if (query.error || !property) return <div className="text-red-400 p-8">Property not found.</div>;
 
-  const loc = (property.location || {}) as { address?: string; city?: string; state?: string; pincode?: string };
+  const isOwner =
+    !!user?.walletAddress && property.ownerWallet.toLowerCase() === user.walletAddress.toLowerCase();
+
+  const docUrl = property.ipfsGatewayUrl || getIPFSGatewayUrl(property.ipfsCid);
 
   return (
-    <div className="min-h-screen">
-      <nav className="border-b border-gray-800 bg-primary/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <Link to="/properties" className="text-gray-400 hover:text-white">
-            ← Back to Properties
-          </Link>
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">{property.surveyNumber}</h1>
+          <p className="text-gray-400 mt-2">
+            {property.location.city}, {property.location.state} • Area: {property.area} sq ft
+          </p>
         </div>
-      </nav>
+        {isOwner ? (
+          <button onClick={() => navigate(`/transfer/${property.blockchainPropertyId}`)} className="btn-primary">
+            Transfer Property
+          </button>
+        ) : null}
+      </div>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-start mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white">
-              {String(property.surveyNumber ?? "")}
-            </h1>
-            <StatusBadge status={String(property.status ?? "")} />
-          </div>
-          {isOwner && (
-            <button
-              onClick={() => navigate(`/transfer/${propertyId}`)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-accent text-primary font-semibold rounded-lg"
-            >
-              Initiate Transfer <ArrowRight size={16} />
-            </button>
-          )}
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-8">
-          <div className="space-y-6">
-            <div className="p-6 bg-surface rounded-xl border border-gray-800">
-              <h3 className="font-semibold text-white mb-4">Property Details</h3>
-              <dl className="space-y-2 text-sm">
-                <div><dt className="text-gray-500">Location</dt><dd className="text-white">{String(loc?.address || property.location || "")}</dd></div>
-                <div><dt className="text-gray-500">City</dt><dd className="text-white">{String(loc?.city || "")}</dd></div>
-                <div><dt className="text-gray-500">Area</dt><dd className="text-white">{String(property.area || "")} sq ft</dd></div>
-                <div><dt className="text-gray-500">Type</dt><dd className="text-white">{String(property.propertyType || "")}</dd></div>
-                <div><dt className="text-gray-500">Owner</dt><dd><BlockchainAddressBadge address={String(property.ownerWallet || "")} /></dd></div>
-              </dl>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <h2 className="text-lg font-semibold mb-3 text-white">MongoDB Data</h2>
+          <div className="text-sm text-gray-300 space-y-2">
+            <div>
+              <span className="text-gray-400">Blockchain ID: </span>
+              <span className="font-mono">{property.blockchainPropertyId}</span>
             </div>
-
-            <div className="p-6 bg-surface rounded-xl border border-gray-800">
-              <h3 className="font-semibold text-white mb-4">Document</h3>
-              <IPFSDocumentViewer cid={String(property.ipfsCid || "")} />
-              <div className="mt-2"><IPFSCIDBadge cid={String(property.ipfsCid || "")} /></div>
+            <div>
+              <span className="text-gray-400">Status: </span>
+              <span className="font-medium">{property.status}</span>
+            </div>
+            <div>
+              <span className="text-gray-400">Owner: </span>
+              <span className="font-mono">{property.ownerWallet}</span>
+            </div>
+            <div>
+              <span className="text-gray-400">Property Type: </span>
+              <span className="font-medium">{property.propertyType}</span>
+            </div>
+            <div>
+              <span className="text-gray-400">Description: </span>
+              <span>{property.description || "-"}</span>
+            </div>
+            <div className="pt-2">
+              <span className="text-gray-400">Document: </span>
+              {docUrl ? (
+                <a href={docUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline ml-2">
+                  View ↗
+                </a>
+              ) : (
+                <span className="text-gray-500 ml-2">N/A</span>
+              )}
             </div>
           </div>
-
-          <div className="space-y-6">
-            {onChain && (
-              <div className="p-6 bg-surface rounded-xl border border-emerald-500/20">
-                <h3 className="font-semibold text-emerald-400 mb-4">On-Chain Verification</h3>
-                <dl className="space-y-2 text-sm">
-                  <div><dt className="text-gray-500">Verified</dt><dd className="text-white">{String(onChain.isVerified)}</dd></div>
-                  <div><dt className="text-gray-500">Owner</dt><dd><BlockchainAddressBadge address={String(onChain.currentOwner || "")} /></dd></div>
-                  <div><dt className="text-gray-500">IPFS Hash</dt><dd className="font-mono text-xs text-gray-400">{String(onChain.ipfsDocumentHash).slice(0, 30)}...</dd></div>
-                </dl>
-              </div>
-            )}
-
-            {auditData.length > 0 && (
-              <div className="p-6 bg-surface rounded-xl border border-gray-800">
-                <h3 className="font-semibold text-white mb-4">Ownership Timeline</h3>
-                <AuditTimeline events={auditData as AuditLog[]} />
-              </div>
-            )}
-          </div>
         </div>
-      </main>
+
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <h2 className="text-lg font-semibold mb-3 text-white">On-chain Data (best-effort)</h2>
+          <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words bg-gray-950/40 border border-gray-800 rounded-lg p-3">
+            {JSON.stringify(onChain ?? {}, null, 2)}
+          </pre>
+        </div>
+      </div>
+
+      <div className="mt-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <h2 className="text-lg font-semibold text-white">Audit Timeline</h2>
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              toast.success("Refreshing...");
+              query.refetch();
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {audit.length === 0 ? (
+          <div className="text-gray-500">No audit entries found.</div>
+        ) : (
+          <div className="space-y-3">
+            {audit.map((entry) => (
+              <div key={entry._id || `${entry.txHash}-${entry.timestamp}`} className="p-3 rounded-lg border border-gray-800 bg-gray-950/30">
+                <div className="text-sm text-white font-semibold">{entry.eventType}</div>
+                <div className="text-xs text-gray-400 mt-1">
+                  Time: {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "-"} • Tx:{" "}
+                  <span className="font-mono text-indigo-400">{entry.txHash}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+

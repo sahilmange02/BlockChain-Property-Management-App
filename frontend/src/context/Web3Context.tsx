@@ -1,179 +1,395 @@
-/*
- * WEB3 CONTEXT: The bridge between your React app and MetaMask/Blockchain
- * ========================================================================
- * BLOCKCHAIN EXPLAINED:
- *
- * "Web3" = everything related to blockchain interactions in the browser.
- *
- * MetaMask is a browser extension that:
- * - Holds the user's Ethereum wallet (private key never leaves the browser)
- * - Shows a popup when a transaction needs the user's approval
- * - Signs transactions with the user's private key
- * - Connects to the blockchain network (Hardhat local or Sepolia testnet)
- *
- * window.ethereum: MetaMask injects this object into the browser window.
- * Your React app uses it to talk to MetaMask.
- *
- * ethers.js OBJECTS:
- * - BrowserProvider: wraps window.ethereum into a usable provider object
- * - Signer: the user's wallet — can sign (authorize) transactions
- * - Contract: your smart contract, connected to the signer
- *
- * CONTRACT EXPLAINED:
- * We create the Contract object with three things:
- * 1. The contract ADDRESS (where it lives on the blockchain)
- * 2. The ABI (instruction manual — what functions the contract has)
- * 3. The SIGNER (the user's wallet — so they can sign transactions)
- *
- * Once created, calling contract.registerProperty(...) will:
- * - Show a MetaMask popup with the transaction details and gas cost
- * - If user approves → the transaction is sent to the blockchain
- * - If user rejects → nothing happens
- */
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { BrowserProvider, Contract, Signer } from "ethers";
-import type { Web3ContextType } from "@/types";
-import contractAbi from "@/contracts/PropertyRegistry.json";
+import { createContext, useContext, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { ethers } from "ethers";
+import toast from "react-hot-toast";
 
-const HARDHAT_NETWORK_CONFIG = {
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
+// Import the contract ABI — copied here by deploy script
+// If this file doesn't exist yet, create an empty one:
+// frontend/src/contracts/PropertyRegistry.json = { "abi": [], "address": "" }
+import ContractABI from "../contracts/PropertyRegistry.json";
+
+// ============================================================
+// NETWORK CONFIGS
+// ============================================================
+
+// Hardhat local network (for development)
+const HARDHAT_NETWORK = {
   chainId: "0x7A69", // 31337 in hex
   chainName: "Hardhat Local",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: ["http://127.0.0.1:8545"],
-  blockExplorerUrls: [] as string[],
+  blockExplorerUrls: [],
 };
 
-const SEPOLIA_NETWORK_CONFIG = {
-  chainId: "0xAA36A7",
+// Sepolia testnet (for staging/demo)
+const SEPOLIA_NETWORK = {
+  chainId: "0xAA36A7", // 11155111 in hex
   chainName: "Sepolia Testnet",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: ["https://rpc.sepolia.org"],
   blockExplorerUrls: ["https://sepolia.etherscan.io"],
 };
 
-const TARGET_CHAIN_ID = parseInt(import.meta.env.VITE_CHAIN_ID || "31337", 10);
-const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || "";
+// Which network this app expects — comes from .env
+const EXPECTED_CHAIN_ID = parseInt(import.meta.env.VITE_CHAIN_ID || "31337");
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface Web3ContextType {
+  account: string | null;
+  chainId: number | null;
+  isConnected: boolean;
+  isCorrectNetwork: boolean;
+  isConnecting: boolean;
+  provider: ethers.BrowserProvider | null;
+  signer: ethers.JsonRpcSigner | null;
+  contract: ethers.Contract | null;
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  switchNetwork: () => Promise<void>;
+  signMessage: (message: string) => Promise<string>;
+}
+
+// ============================================================
+// CONTEXT
+// ============================================================
 
 const Web3Context = createContext<Web3ContextType | null>(null);
 
-export function Web3Provider({ children }: { children: React.ReactNode }) {
+// ============================================================
+// PROVIDER
+// ============================================================
+
+export function Web3Provider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
-  const [provider, setProvider] = useState<BrowserProvider | null>(null);
-  const [signer, setSigner] = useState<Signer | null>(null);
-  const [contract, setContract] = useState<Contract | null>(null);
+  const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
+  const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
+  const [contract, setContract] = useState<ethers.Contract | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
 
-  const isConnected = !!account;
-  const isWrongNetwork = chainId !== null && chainId !== TARGET_CHAIN_ID;
+  const isCorrectNetwork = chainId === EXPECTED_CHAIN_ID;
+  const hasMetaMask = typeof window !== "undefined" && !!window.ethereum;
 
-  const switchNetwork = async () => {
-    const ethereum = (window as unknown as { ethereum?: { request: (args: unknown) => Promise<unknown> } }).ethereum;
-    if (!ethereum) return;
+  // ──────────────────────────────────────────────────────────
+  // SETUP PROVIDER
+  // Reads current MetaMask state and populates all context values
+  // Returns the values so connect() can use them immediately
+  // ──────────────────────────────────────────────────────────
+  const setupProvider = async (ethereum: typeof window.ethereum) => {
+    const _provider = new ethers.BrowserProvider(ethereum!);
+    const _signer = await _provider.getSigner();
+    const _account = (await _signer.getAddress()).toLowerCase();
+    const network = await _provider.getNetwork();
+    const _chainId = Number(network.chainId);
 
-    const config = HARDHAT_NETWORK_CONFIG;
+    // Load the smart contract with the user's signer
+    const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS || "";
+    let _contract: ethers.Contract | null = null;
+    if (contractAddress && (ContractABI as any).abi && (ContractABI as any).abi.length > 0) {
+      _contract = new ethers.Contract(contractAddress, (ContractABI as any).abi, _signer);
+    }
 
-    try {
-      await ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: config.chainId }],
-      });
-    } catch (switchErr: unknown) {
-      const err = switchErr as { code?: number };
-      if (err.code === 4902) {
-        await ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [config],
-        });
+    // Update all state at once
+    setProvider(_provider);
+    setSigner(_signer);
+    setAccount(_account);
+    setChainId(_chainId);
+    setContract(_contract);
+
+    return { _provider, _signer, _account, _chainId };
+  };
+
+  // ──────────────────────────────────────────────────────────
+  // AUTO-RECONNECT ON PAGE LOAD
+  // If user previously connected, reconnect silently
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!hasMetaMask) return;
+
+    const wasConnected = localStorage.getItem("walletConnected") === "true";
+    if (!wasConnected) return;
+
+    // Check if MetaMask still has an account authorized
+    (window.ethereum as any)
+      .request({ method: "eth_accounts" })
+      .then((accounts: string[]) => {
+        if (accounts.length > 0) {
+          setupProvider(window.ethereum).catch(console.error);
+        } else {
+          // MetaMask was disconnected externally
+          localStorage.removeItem("walletConnected");
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  // ──────────────────────────────────────────────────────────
+  // METAMASK EVENT LISTENERS
+  // Handle account switches and network changes
+  // ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!hasMetaMask) return;
+
+    const handleAccountsChanged = (accounts: string[]) => {
+      if (accounts.length === 0) {
+        // User disconnected from MetaMask side
+        disconnect();
+      } else {
+        // User switched accounts — re-setup with new account
+        setupProvider(window.ethereum).catch(console.error);
       }
+    };
+
+    const handleChainChanged = () => {
+      // MetaMask recommends reloading on chain change
+      window.location.reload();
+    };
+
+    (window.ethereum as any).on("accountsChanged", handleAccountsChanged);
+    (window.ethereum as any).on("chainChanged", handleChainChanged);
+
+    return () => {
+      (window.ethereum as any).removeListener("accountsChanged", handleAccountsChanged);
+      (window.ethereum as any).removeListener("chainChanged", handleChainChanged);
+    };
+  }, []);
+
+  // ──────────────────────────────────────────────────────────
+  // LINK WALLET TO BACKEND
+  // Called automatically after connecting if wallet not yet linked.
+  // Signs a message to PROVE the user owns this wallet address.
+  // Backend verifies the signature and saves walletAddress to MongoDB.
+  //
+  // THE MESSAGE MUST MATCH EXACTLY what backend expects:
+  //   "Link wallet to Land Registry: " + userId
+  // ──────────────────────────────────────────────────────────
+  const linkWalletToBackend = async (
+    walletAddress: string,
+    _signer: ethers.JsonRpcSigner,
+    userId: string
+  ): Promise<void> => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        // User not logged in — skip linking, they can do it after login
+        return;
+      }
+
+      // CRITICAL: this exact string must match backend verification
+      const message = `Link wallet to Land Registry: ${userId}`;
+
+      toast("Sign the message in MetaMask to link your wallet...", {
+        icon: "✍️",
+        duration: 8000,
+      });
+
+      // This triggers the MetaMask "Sign Message" popup
+      const signature = await _signer.signMessage(message);
+
+      // Send signed message + address to backend
+      const response = await fetch("/api/auth/link-wallet", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ walletAddress, signature }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Update localStorage user object so UI reflects linked wallet immediately
+        const storedUser = localStorage.getItem("user");
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          parsedUser.walletAddress = walletAddress;
+          localStorage.setItem("user", JSON.stringify(parsedUser));
+        }
+
+        toast.success("Wallet linked to your account! ✓");
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast.error(data.message || "Could not link wallet.");
+      }
+    } catch (err: any) {
+      if (err?.code === 4001 || err?.code === "ACTION_REJECTED") {
+        // User clicked "Reject" on the MetaMask sign popup
+        toast.error(
+          "You rejected the signature. Wallet not linked. You can link it later from your dashboard."
+        );
+      } else {
+        // Network error, backend down, etc.
+        console.error("Wallet link error:", err);
+        toast.error("Wallet connected but could not link to account. Try again from dashboard.");
+      }
+      // IMPORTANT: Don't rethrow — wallet is still connected to browser
     }
   };
 
-  const connect = async () => {
-    const ethereum = (window as unknown as { ethereum?: { request: (args: unknown) => Promise<unknown[]> } }).ethereum;
-    if (!ethereum) {
+  // ──────────────────────────────────────────────────────────
+  // CONNECT
+  // Main function called when user clicks "Connect MetaMask"
+  // ──────────────────────────────────────────────────────────
+  const connect = async (): Promise<void> => {
+    if (!hasMetaMask) {
+      toast.error("MetaMask not installed. Opening download page...");
       window.open("https://metamask.io/download/", "_blank");
       return;
     }
 
-    const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
-    setAccount(accounts[0] || null);
+    setIsConnecting(true);
+    try {
+      // Step 1: Ask MetaMask for permission to see accounts
+      await (window.ethereum as any).request({ method: "eth_requestAccounts" });
 
-    const chainIdHex = String(await ethereum.request({ method: "eth_chainId" }));
-    const parsedChainId = parseInt(chainIdHex, 16);
-    setChainId(parsedChainId);
+      // Step 2: Set up provider, signer, contract
+      const { _chainId, _account, _signer } = await setupProvider(window.ethereum);
 
-    if (parsedChainId !== TARGET_CHAIN_ID) {
-      await switchNetwork();
-      const newChainIdHex = String(await ethereum.request({ method: "eth_chainId" }));
-      setChainId(parseInt(newChainIdHex, 16));
-    }
+      // Step 3: Check if on correct network, switch if needed
+      if (_chainId !== EXPECTED_CHAIN_ID) {
+        await switchNetwork();
+        // After switchNetwork, page will reload
+        return;
+      }
 
-    const prov = new BrowserProvider(ethereum);
-    setProvider(prov);
-    const sig = await prov.getSigner();
-    setSigner(sig);
+      // Step 4: Mark as connected in localStorage for auto-reconnect
+      localStorage.setItem("walletConnected", "true");
+      toast.success("MetaMask connected!");
 
-    if (CONTRACT_ADDRESS) {
-      setContract(new Contract(CONTRACT_ADDRESS, contractAbi.abi, sig));
+      // Step 5: Auto-link wallet to backend account if:
+      //   - User is logged in (token exists)
+      //   - Wallet is not already linked (no walletAddress in stored user)
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        if (!parsedUser.walletAddress) {
+          await linkWalletToBackend(_account, _signer, parsedUser.id);
+        } else if (parsedUser.walletAddress.toLowerCase() !== _account.toLowerCase()) {
+          toast("Warning: This wallet is different from your linked wallet.", {
+            icon: "⚠️",
+            duration: 5000,
+          });
+        }
+      }
+    } catch (err: any) {
+      if (err?.code === 4001) {
+        toast.error("Connection rejected. Please allow MetaMask access.");
+      } else {
+        console.error("Connect error:", err);
+        toast.error("Failed to connect MetaMask. See console for details.");
+      }
+    } finally {
+      setIsConnecting(false);
     }
   };
 
-  const disconnect = () => {
+  // ──────────────────────────────────────────────────────────
+  // DISCONNECT
+  // Clears all local state (MetaMask stays connected on its side,
+  // but we forget the connection on our side)
+  // ──────────────────────────────────────────────────────────
+  const disconnect = (): void => {
     setAccount(null);
     setChainId(null);
     setProvider(null);
     setSigner(null);
     setContract(null);
-    localStorage.removeItem("web3_connected");
+    localStorage.removeItem("walletConnected");
+    toast("Wallet disconnected.", { icon: "👋" });
   };
 
-  useEffect(() => {
-    if (account && chainId === TARGET_CHAIN_ID && provider && signer && CONTRACT_ADDRESS) {
-      setContract(new Contract(CONTRACT_ADDRESS, contractAbi.abi, signer));
+  // ──────────────────────────────────────────────────────────
+  // SWITCH NETWORK
+  // Asks MetaMask to switch to the expected network.
+  // If network not in MetaMask yet, adds it automatically.
+  // ──────────────────────────────────────────────────────────
+  const switchNetwork = async (): Promise<void> => {
+    if (!hasMetaMask) return;
+
+    const targetNetwork = EXPECTED_CHAIN_ID === 31337 ? HARDHAT_NETWORK : SEPOLIA_NETWORK;
+
+    try {
+      // Try switching to existing network
+      await (window.ethereum as any).request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: targetNetwork.chainId }],
+      });
+    } catch (switchError: any) {
+      if (switchError?.code === 4902) {
+        // Network not in MetaMask — add it first, then switch
+        try {
+          await (window.ethereum as any).request({
+            method: "wallet_addEthereumChain",
+            params: [targetNetwork],
+          });
+        } catch (addError: any) {
+          toast.error("Could not add network to MetaMask.");
+          throw addError;
+        }
+      } else if (switchError?.code === 4001) {
+        toast.error("Network switch rejected.");
+        throw switchError;
+      } else {
+        throw switchError;
+      }
     }
-  }, [account, chainId, provider, signer]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("web3_connected");
-    if (stored === "true") connect();
-  }, []);
-
-  useEffect(() => {
-    if (account) localStorage.setItem("web3_connected", "true");
-  }, [account]);
-
-  const ethereum = typeof window !== "undefined" ? (window as unknown as { ethereum?: { on: (e: string, cb: () => void) => void } }).ethereum : undefined;
-
-  useEffect(() => {
-    if (!ethereum) return;
-    const handleAccountsChanged = () => connect();
-    const handleChainChanged = () => window.location.reload();
-    ethereum.on("accountsChanged", handleAccountsChanged);
-    ethereum.on("chainChanged", handleChainChanged);
-    return () => {
-      ethereum.on("accountsChanged", handleAccountsChanged);
-      ethereum.on("chainChanged", handleChainChanged);
-    };
-  }, []);
-
-  const value: Web3ContextType = {
-    connect,
-    disconnect,
-    account,
-    chainId,
-    isConnected,
-    provider,
-    signer,
-    contract,
-    switchNetwork,
-    isWrongNetwork,
   };
 
-  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
+  // ──────────────────────────────────────────────────────────
+  // SIGN MESSAGE
+  // Used for wallet linking and any other signature needs
+  // ──────────────────────────────────────────────────────────
+  const signMessage = async (message: string): Promise<string> => {
+    if (!signer) {
+      throw new Error("Wallet not connected. Please connect MetaMask first.");
+    }
+    return await signer.signMessage(message);
+  };
+
+  // ──────────────────────────────────────────────────────────
+  // RENDER
+  // ──────────────────────────────────────────────────────────
+  return (
+    <Web3Context.Provider
+      value={{
+        account,
+        chainId,
+        isConnected: !!account,
+        isCorrectNetwork,
+        isConnecting,
+        provider,
+        signer,
+        contract,
+        connect,
+        disconnect,
+        switchNetwork,
+        signMessage,
+      }}
+    >
+      {children}
+    </Web3Context.Provider>
+  );
 }
 
-export function useWeb3() {
+// ============================================================
+// HOOK
+// ============================================================
+
+export function useWeb3(): Web3ContextType {
   const ctx = useContext(Web3Context);
-  if (!ctx) throw new Error("useWeb3 must be used within Web3Provider");
+  if (!ctx) {
+    throw new Error("useWeb3 must be used inside <Web3Provider>");
+  }
   return ctx;
 }
+

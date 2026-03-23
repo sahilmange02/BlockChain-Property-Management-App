@@ -1,26 +1,28 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@layer components {
+  .input-field {
+    @apply w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white
+           placeholder-gray-500 focus:border-indigo-500 focus:outline-none focus:ring-1
+           focus:ring-indigo-500 transition-colors;
+  }
 
-:root {
-  --primary: #0a1628;
-  --accent: #10b981;
-  --secondary: #f59e0b;
-  --background: #0d1b2a;
-  --surface: #1b2838;
+  .btn-primary {
+    @apply px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold
+           rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold
+           rounded-lg transition-colors;
+  }
+
+  .err {
+    @apply text-red-400 text-xs mt-1;
+  }
 }
 
-body {
-  @apply bg-background text-gray-100 font-sans antialiased;
-  background-image: 
-    linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-
-/* Trust-inspiring institutional styling */
-.font-address {
-  font-family: "IBM Plex Mono", monospace;
+/* App background helper */
+.app-shell {
+  @apply min-h-screen bg-gray-950 text-white;
 }

@@ -1,21 +1,18 @@
-export enum PropertyType {
-  RESIDENTIAL = "RESIDENTIAL",
-  COMMERCIAL = "COMMERCIAL",
-  AGRICULTURAL = "AGRICULTURAL",
-  INDUSTRIAL = "INDUSTRIAL",
-}
+export type Role = "CITIZEN" | "GOVERNMENT" | "ADMIN";
+export type KycStatus = "PENDING" | "VERIFIED" | "REJECTED";
+export type PropertyStatus = "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "TRANSFER_PENDING";
+export type PropertyType = "RESIDENTIAL" | "COMMERCIAL" | "AGRICULTURAL" | "INDUSTRIAL";
 
-export enum PropertyStatus {
-  PENDING_VERIFICATION = "PENDING_VERIFICATION",
-  VERIFIED = "VERIFIED",
-  REJECTED = "REJECTED",
-  TRANSFER_PENDING = "TRANSFER_PENDING",
-}
-
-export enum UserRole {
-  CITIZEN = "CITIZEN",
-  GOVERNMENT = "GOVERNMENT",
-  ADMIN = "ADMIN",
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: Role;
+  walletAddress?: string;
+  isVerified?: boolean;
+  kycStatus?: KycStatus;
+  createdAt?: string;
 }
 
 export interface PropertyLocation {
@@ -39,52 +36,31 @@ export interface Property {
   surveyNumber: string;
   location: PropertyLocation;
   area: number;
-  propertyType: PropertyType | string;
+  propertyType: PropertyType;
   description: string;
   ipfsCid: string;
   ipfsGatewayUrl?: string;
   ownerWallet: string;
-  status: PropertyStatus | string;
-  images: PropertyImage[];
-  registrationDate: string;
-  lastUpdated?: string;
+  status: PropertyStatus;
   blockchainTxHash: string;
+  registrationDate?: string;
+  images?: PropertyImage[];
 }
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  role: UserRole | string;
-  walletAddress?: string;
-  isVerified?: boolean;
-  kycStatus?: string;
-  createdAt?: string;
-}
-
-export interface TransferRequest {
+export interface Transfer {
   _id: string;
   propertyId: number;
   fromOwnerWallet: string;
   toOwnerWallet: string;
-  status: string;
   blockchainTxHash?: string;
   blockchainTransferId?: number;
-  createdAt: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  confirmedAt?: string;
+  createdAt?: string;
 }
 
-export interface Notification {
-  _id: string;
-  type: string;
-  message: string;
-  propertyId?: number;
-  isRead: boolean;
-  createdAt: string;
-}
-
-export interface AuditLog {
-  _id: string;
+export interface AuditEntry {
+  _id?: string;
   eventType: string;
   propertyId: number;
   fromAddress?: string;
@@ -95,40 +71,47 @@ export interface AuditLog {
   metadata?: Record<string, unknown>;
 }
 
-export interface ApiResponse<T> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
-  data?: T;
   message?: string;
+  data?: T;
 }
 
-export interface PaginatedResponse<T> {
+export interface PropertiesListResponse {
   success: boolean;
-  properties?: T[];
-  users?: T[];
-  transfers?: T[];
-  entries?: T[];
+  properties: Property[];
   total: number;
   page: number;
   pages: number;
 }
 
-export interface Web3ContextType {
-  connect: () => Promise<void>;
-  disconnect: () => void;
-  account: string | null;
-  chainId: number | null;
-  isConnected: boolean;
-  provider: import("ethers").BrowserProvider | null;
-  signer: import("ethers").Signer | null;
-  contract: import("ethers").Contract | null;
-  switchNetwork: () => Promise<void>;
-  isWrongNetwork: boolean;
+export interface PropertySearchResponse {
+  success: boolean;
+  property: Property;
 }
 
-export interface AuthContextType {
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  user: User | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
+export interface PropertyDetailResponse {
+  success: boolean;
+  property: Property;
+  onChain: unknown;
+  audit: AuditEntry[];
 }
+
+export interface PaginatedUsersResponse {
+  success: boolean;
+  users: Array<{ name: string; email: string; role: string; kycStatus?: string; isVerified?: boolean; walletAddress?: string; createdAt?: string }>;
+  total: number;
+  page: number;
+  pages: number;
+}
+
+export interface AdminAnalyticsResponse {
+  success: boolean;
+  totalProperties: number;
+  pendingVerifications: number;
+  totalTransfers: number;
+  propertiesByType: Record<string, number>;
+  propertiesByStatus: Record<string, number>;
+  recentActivity: AuditEntry[];
+}
+

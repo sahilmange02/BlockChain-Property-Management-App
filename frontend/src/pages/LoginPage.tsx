@@ -1,115 +1,112 @@
 import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useAuth } from "@/context/AuthContext";
-import { useWeb3 } from "@/context/Web3Context";
-import { WalletConnectButton } from "@/components/WalletConnectButton";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import { Lock, Loader, Mail } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().email("Invalid email"),
+  password: z.string().min(1, "Password is required"),
 });
 
 type FormData = z.infer<typeof schema>;
 
-export function LoginPage() {
+const ROLE_REDIRECT: Record<string, string> = {
+  CITIZEN: "/dashboard",
+  GOVERNMENT: "/government",
+  ADMIN: "/admin",
+};
+
+export default function LoginPage() {
   const { login } = useAuth();
-  const { connect } = useWeb3();
   const navigate = useNavigate();
   const location = useLocation();
-  const [loading, setLoading] = useState(false);
-
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/dashboard";
+  const [isLoading, setIsLoading] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<FormData>({
-    // @ts-expect-error zod vs @hookform/resolvers type compatibility
     resolver: zodResolver(schema),
   });
 
   const onSubmit = async (data: FormData) => {
-    setLoading(true);
+    setIsLoading(true);
     try {
       await login(data.email, data.password);
-      toast.success("Logged in successfully");
-      navigate(from, { replace: true });
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Login failed";
-      toast.error(msg);
+      toast.success("Logged in successfully!");
+
+      const from = (location.state as { from?: { pathname: string } } | undefined)?.from?.pathname;
+      const user = JSON.parse(localStorage.getItem("user") || "{}") as { role?: string };
+      navigate(from || (user.role ? ROLE_REDIRECT[user.role] : undefined) || "/dashboard", { replace: true });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Login failed");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
       <div className="w-full max-w-md">
-        <h1 className="text-3xl font-bold text-white mb-2">Sign In</h1>
-        <p className="text-gray-500 mb-8">Access your property dashboard</p>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Email</label>
-            <input
-              {...register("email")}
-              type="email"
-              className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-accent focus:border-transparent"
-              placeholder="you@example.com"
-            />
-            {errors.email && (
-              <p className="text-red-400 text-sm mt-1">{errors.email.message}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
-            <input
-              {...register("password")}
-              type="password"
-              className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-accent focus:border-transparent"
-              placeholder="••••••••"
-            />
-            {errors.password && (
-              <p className="text-red-400 text-sm mt-1">{errors.password.message}</p>
-            )}
-          </div>
-          <Link to="#" className="block text-sm text-accent hover:underline">
-            Forgot password?
-          </Link>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-accent hover:bg-emerald-500 text-primary font-semibold rounded-lg disabled:opacity-50"
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
-
-        <div className="mt-6 flex items-center gap-4">
-          <div className="flex-1 h-px bg-gray-700" />
-          <span className="text-gray-500 text-sm">or</span>
-          <div className="flex-1 h-px bg-gray-700" />
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-white">Land Registry</h1>
+          <p className="text-gray-400 mt-2">Sign in to your account</p>
         </div>
 
-        <div className="mt-6 flex justify-center">
-          <WalletConnectButton />
-        </div>
-        <p className="text-center text-gray-500 text-sm mt-4">
-          Connect MetaMask to link your wallet after email login
-        </p>
+        <div className="bg-gray-900 rounded-2xl p-8 border border-gray-800">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+                <input
+                  {...register("email")}
+                  type="email"
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+              {errors.email ? <p className="text-red-400 text-xs mt-1">{errors.email.message}</p> : null}
+            </div>
 
-        <p className="text-center text-gray-500 mt-8">
-          Don't have an account?{" "}
-          <Link to="/register" className="text-accent hover:underline">
-            Register
-          </Link>
-        </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+                <input
+                  {...register("password")}
+                  type="password"
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+              {errors.password ? <p className="text-red-400 text-xs mt-1">{errors.password.message}</p> : null}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              {isLoading ? <Loader size={16} className="animate-spin" /> : null}
+              {isLoading ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
+
+          <p className="text-center text-gray-500 text-sm mt-6">
+            Don't have an account?{" "}
+            <Link to="/register" className="text-indigo-400 hover:text-indigo-300">
+              Register
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
 }
+

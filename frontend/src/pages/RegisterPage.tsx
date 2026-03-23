@@ -1,246 +1,245 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import api from "@/services/api";
-import { WalletConnectButton } from "@/components/WalletConnectButton";
+import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import { ChevronLeft, ChevronRight, Loader } from "lucide-react";
+import { authApi } from "../api/auth.api";
 
 const step1Schema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().min(10),
-  role: z.enum(["CITIZEN", "GOVERNMENT", "ADMIN"]),
+  name: z.string().min(1, "Name required").max(100),
+  email: z.string().email("Invalid email"),
+  phone: z.string().min(10, "Min 10 digits"),
 });
 
 const step2Schema = z.object({
-  aadhaarNumber: z.string().min(12).max(14),
-  panNumber: z.string().length(10).regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/),
+  aadhaarNumber: z
+    .string()
+    .length(12, "Aadhaar must be 12 digits")
+    .regex(/^\d+$/, "Digits only"),
+  panNumber: z
+    .string()
+    .length(10, "PAN must be 10 characters")
+    .regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, "Format: AAAAA9999A"),
 });
 
-const step3Schema = z.object({
-  password: z.string().min(8),
-});
+const step3Schema = z
+  .object({
+    password: z.string().min(8, "Min 8 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
-type Step1Data = z.infer<typeof step1Schema>;
-type Step2Data = z.infer<typeof step2Schema>;
-type Step3Data = z.infer<typeof step3Schema>;
+type Step1 = z.infer<typeof step1Schema>;
+type Step2 = z.infer<typeof step2Schema>;
+type Step3 = z.infer<typeof step3Schema>;
 
-export function RegisterPage() {
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
+export default function RegisterPage() {
   const navigate = useNavigate();
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [formData, setFormData] = useState<Partial<Step1 & Step2 & Step3>>({});
 
-  const [formData, setFormData] = useState<Step1Data & Step2Data & Step3Data>({
-    name: "",
-    email: "",
-    phone: "",
-    role: "CITIZEN",
-    aadhaarNumber: "",
-    panNumber: "",
-    password: "",
-  });
+  const form1 = useForm<Step1>({ resolver: zodResolver(step1Schema) });
+  const form2 = useForm<Step2>({ resolver: zodResolver(step2Schema) });
+  const form3 = useForm<Step3>({ resolver: zodResolver(step3Schema) });
 
-  const step1 = useForm<Step1Data>({
-    // @ts-expect-error zod vs @hookform/resolvers type compatibility
-    resolver: zodResolver(step1Schema),
-    defaultValues: formData,
-  });
-
-  const step2 = useForm<Step2Data>({
-    // @ts-expect-error zod vs @hookform/resolvers type compatibility
-    resolver: zodResolver(step2Schema),
-    defaultValues: formData,
-  });
-
-  const step3 = useForm<Step3Data>({
-    // @ts-expect-error zod vs @hookform/resolvers type compatibility
-    resolver: zodResolver(step3Schema),
-    defaultValues: formData,
-  });
-
-  const onStep1 = step1.handleSubmit((data: Step1Data) => {
-    setFormData((p) => ({ ...p, ...data }));
+  const handleStep1 = form1.handleSubmit((data) => {
+    setFormData((prev) => ({ ...prev, ...data }));
     setStep(2);
   });
 
-  const onStep2 = step2.handleSubmit((data: Step2Data) => {
-    setFormData((p) => ({ ...p, ...data }));
+  const handleStep2 = form2.handleSubmit((data) => {
+    setFormData((prev) => ({ ...prev, ...data }));
     setStep(3);
   });
 
-  const onStep3 = step3.handleSubmit(async (data: Step3Data) => {
-    setFormData((p) => ({ ...p, ...data }));
-    setLoading(true);
+  const handleStep3 = form3.handleSubmit(async (data) => {
+    setIsLoading(true);
     try {
-      await api.post("/auth/register", { ...formData, ...data });
-      toast.success("Registration successful");
+      const payload = {
+        name: formData.name as string,
+        email: formData.email as string,
+        phone: formData.phone as string,
+        password: data.password,
+        aadhaarNumber: formData.aadhaarNumber as string,
+        panNumber: formData.panNumber as string,
+      };
+
+      await authApi.register({
+        name: payload.name,
+        email: payload.email,
+        phone: payload.phone,
+        password: payload.password,
+        aadhaarNumber: payload.aadhaarNumber,
+        panNumber: payload.panNumber,
+      });
+
+      toast.success("Registration successful! Please login.");
       navigate("/login");
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Registration failed";
-      toast.error(msg);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Registration failed");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   });
 
-  const progress = (step / 4) * 100;
-
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
       <div className="w-full max-w-md">
-        <h1 className="text-3xl font-bold text-white mb-2">Create Account</h1>
-        <p className="text-gray-500 mb-8">Register for the land registry</p>
-
-        <div className="h-2 bg-surface rounded-full mb-8 overflow-hidden">
-          <div
-            className="h-full bg-accent transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-white">Create Account</h1>
+          <p className="text-gray-400 mt-2">Step {step} of 3</p>
+          <div className="mt-4 flex gap-2">
+            {[1, 2, 3].map((s) => (
+              <div key={s} className={`flex-1 h-1 rounded ${s <= step ? "bg-indigo-500" : "bg-gray-700"}`} />
+            ))}
+          </div>
         </div>
 
-        {step === 1 && (
-          <form onSubmit={onStep1} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
-              <input
-                {...step1.register("name")}
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white"
-              />
-              {step1.formState.errors.name && (
-                <p className="text-red-400 text-sm mt-1">{step1.formState.errors.name.message}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Email</label>
-              <input
-                {...step1.register("email")}
-                type="email"
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white"
-              />
-              {step1.formState.errors.email && (
-                <p className="text-red-400 text-sm mt-1">{step1.formState.errors.email.message}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Phone</label>
-              <input
-                {...step1.register("phone")}
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white"
-              />
-              {step1.formState.errors.phone && (
-                <p className="text-red-400 text-sm mt-1">{step1.formState.errors.phone.message}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Role</label>
-              <select
-                {...step1.register("role")}
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white"
-              >
-                <option value="CITIZEN">Citizen</option>
-                <option value="GOVERNMENT">Government</option>
-                <option value="ADMIN">Admin</option>
-              </select>
-            </div>
-            <button
-              type="submit"
-              className="w-full py-3 bg-accent hover:bg-emerald-500 text-primary font-semibold rounded-lg"
-            >
-              Next
-            </button>
-          </form>
-        )}
+        <div className="bg-gray-900 rounded-2xl p-8 border border-gray-800">
+          {step === 1 && (
+            <form onSubmit={handleStep1} className="space-y-4">
+              <h2 className="text-white font-semibold text-lg mb-4">Personal Details</h2>
 
-        {step === 2 && (
-          <form onSubmit={onStep2} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Aadhaar (masked)</label>
-              <input
-                {...step2.register("aadhaarNumber")}
-                type="password"
-                placeholder="••••••••••••"
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white"
-              />
-              {step2.formState.errors.aadhaarNumber && (
-                <p className="text-red-400 text-sm mt-1">{step2.formState.errors.aadhaarNumber.message}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">PAN (masked)</label>
-              <input
-                {...step2.register("panNumber")}
-                placeholder="ABCDE1234F"
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white font-mono"
-              />
-              {step2.formState.errors.panNumber && (
-                <p className="text-red-400 text-sm mt-1">{step2.formState.errors.panNumber.message}</p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="flex-1 py-3 bg-surface border border-gray-700 text-white rounded-lg"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-3 bg-accent hover:bg-emerald-500 text-primary font-semibold rounded-lg"
-              >
-                Next
-              </button>
-            </div>
-          </form>
-        )}
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Full Name</label>
+                <input
+                  {...form1.register("name")}
+                  className="input-field"
+                  placeholder="Harshal Dama"
+                />
+                {form1.formState.errors.name ? (
+                  <p className="err">{form1.formState.errors.name.message}</p>
+                ) : null}
+              </div>
 
-        {step === 3 && (
-          <form onSubmit={onStep3} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
-              <input
-                {...step3.register("password")}
-                type="password"
-                className="w-full px-4 py-3 bg-surface border border-gray-700 rounded-lg text-white"
-              />
-              {step3.formState.errors.password && (
-                <p className="text-red-400 text-sm mt-1">{step3.formState.errors.password.message}</p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="flex-1 py-3 bg-surface border border-gray-700 text-white rounded-lg"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 py-3 bg-accent hover:bg-emerald-500 text-primary font-semibold rounded-lg disabled:opacity-50"
-              >
-                {loading ? "Registering..." : "Register"}
-              </button>
-            </div>
-          </form>
-        )}
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Email</label>
+                <input
+                  {...form1.register("email")}
+                  className="input-field"
+                  placeholder="harshal@email.com"
+                />
+                {form1.formState.errors.email ? (
+                  <p className="err">{form1.formState.errors.email.message}</p>
+                ) : null}
+              </div>
 
-        <p className="text-center text-gray-500 mt-8">
-          Already have an account?{" "}
-          <Link to="/login" className="text-accent hover:underline">
-            Login
-          </Link>
-        </p>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Phone</label>
+                <input
+                  {...form1.register("phone")}
+                  className="input-field"
+                  placeholder="9876543210"
+                />
+                {form1.formState.errors.phone ? (
+                  <p className="err">{form1.formState.errors.phone.message}</p>
+                ) : null}
+              </div>
 
-        {step === 3 && (
-          <p className="text-center text-gray-500 text-sm mt-4">
-            You can link your wallet later from the dashboard
+              <button type="submit" className="w-full btn-primary flex items-center justify-center gap-2 mt-6">
+                Next <ChevronRight size={16} />
+              </button>
+            </form>
+          )}
+
+          {step === 2 && (
+            <form onSubmit={handleStep2} className="space-y-4">
+              <h2 className="text-white font-semibold text-lg mb-4">KYC Verification</h2>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Aadhaar Number</label>
+                <input
+                  {...form2.register("aadhaarNumber")}
+                  className="input-field font-mono"
+                  placeholder="123456789012"
+                  maxLength={12}
+                />
+                {form2.formState.errors.aadhaarNumber ? (
+                  <p className="err">{form2.formState.errors.aadhaarNumber.message}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">PAN Number</label>
+                <input
+                  {...form2.register("panNumber")}
+                  className="input-field font-mono uppercase"
+                  placeholder="ABCDE1234F"
+                  maxLength={10}
+                />
+                {form2.formState.errors.panNumber ? (
+                  <p className="err">{form2.formState.errors.panNumber.message}</p>
+                ) : null}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button type="button" onClick={() => setStep(1)} className="flex-1 btn-secondary flex items-center justify-center gap-2">
+                  <ChevronLeft size={16} /> Back
+                </button>
+                <button type="submit" className="flex-1 btn-primary flex items-center justify-center gap-2">
+                  Next <ChevronRight size={16} />
+                </button>
+              </div>
+            </form>
+          )}
+
+          {step === 3 && (
+            <form onSubmit={handleStep3} className="space-y-4">
+              <h2 className="text-white font-semibold text-lg mb-4">Set Password</h2>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Password</label>
+                <input
+                  {...form3.register("password")}
+                  type="password"
+                  className="input-field"
+                  placeholder="••••••••"
+                />
+                {form3.formState.errors.password ? (
+                  <p className="err">{form3.formState.errors.password.message}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Confirm Password</label>
+                <input
+                  {...form3.register("confirmPassword")}
+                  type="password"
+                  className="input-field"
+                  placeholder="••••••••"
+                />
+                {form3.formState.errors.confirmPassword ? (
+                  <p className="err">{form3.formState.errors.confirmPassword.message}</p>
+                ) : null}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button type="button" onClick={() => setStep(2)} className="flex-1 btn-secondary flex items-center justify-center gap-2">
+                  <ChevronLeft size={16} /> Back
+                </button>
+                <button type="submit" disabled={isLoading} className="flex-1 btn-primary flex items-center justify-center gap-2">
+                  {isLoading ? <Loader size={16} className="animate-spin" /> : null}
+                  {isLoading ? "Creating..." : "Create Account"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          <p className="text-center text-gray-500 text-sm mt-6">
+            Already have an account?{" "}
+            <Link to="/login" className="text-indigo-400 hover:text-indigo-300">
+              Login
+            </Link>
           </p>
-        )}
+        </div>
       </div>
     </div>
   );
 }
+

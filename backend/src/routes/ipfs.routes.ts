@@ -23,33 +23,83 @@ const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
+        console.log("🔍 Multer fileFilter check:");
+        console.log("  - File mimetype:", file.mimetype);
+        console.log("  - File originalname:", file.originalname);
+
         const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/jpg"];
         if (allowedTypes.includes(file.mimetype)) {
+            console.log("✅ File type allowed");
             cb(null, true);
         } else {
+            console.log("❌ File type not allowed");
             cb(new Error("Only PDF, JPG, PNG files are allowed"));
         }
     },
 });
 
-router.post("/upload", verifyJWT, upload.single("document"), async (req: Request, res: Response) => {
+router.post("/upload", verifyJWT, (req: Request, res: Response, next) => {
+    console.log("🔍 Starting multer upload processing...");
+
+    const multerUpload = upload.single("document");
+
+    multerUpload(req, res, (err) => {
+        if (err) {
+            console.error("❌ Multer error:", err.message);
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ success: false, message: "File too large. Maximum size is 10MB." });
+            }
+            return res.status(400).json({ success: false, message: err.message });
+        }
+
+        console.log("✅ Multer processing complete, calling next middleware");
+        next();
+    });
+}, async (req: Request, res: Response) => {
+    console.log("🔍 IPFS Upload Debug:");
+    console.log("  - Request headers:", req.headers);
+    console.log("  - Request body keys:", Object.keys(req.body || {}));
+    console.log("  - File received:", !!req.file);
+    if (req.file) {
+        console.log("  - File details:", {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+            fieldname: req.file.fieldname
+        });
+    }
+
     if (!req.file) {
+        console.log("❌ No file uploaded - returning 400");
         return res.status(400).json({ success: false, message: "No file uploaded" });
     }
 
-    const result = await uploadToIPFS(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-    );
+    console.log("✅ File validation passed, proceeding to IPFS upload...");
 
-    res.json({
-        success: true,
-        cid: result.cid,
-        gatewayUrl: result.gatewayUrl,
-        size: result.size,
-        message: "File uploaded to IPFS successfully",
-    });
+    try {
+        const result = await uploadToIPFS(
+            req.file.buffer,
+            req.file.originalname,
+            req.file.mimetype
+        );
+
+        console.log("✅ IPFS upload successful:", result);
+
+        res.json({
+            success: true,
+            cid: result.cid,
+            gatewayUrl: result.gatewayUrl,
+            size: result.size,
+            message: "File uploaded to IPFS successfully",
+        });
+    } catch (error: any) {
+        console.error("❌ IPFS upload failed:", error.message);
+        console.error("Full error:", error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || "IPFS upload failed"
+        });
+    }
 });
 
 export default router;
