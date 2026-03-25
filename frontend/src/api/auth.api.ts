@@ -5,7 +5,7 @@ export const authApi = {
   register: async (data: {
     name: string;
     email: string;
-    phone: string;
+    phone: number;
     password: string;
     aadhaarNumber: string;
     panNumber: string;

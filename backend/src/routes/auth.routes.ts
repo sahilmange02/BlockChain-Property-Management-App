@@ -18,7 +18,19 @@ const router = Router();
 const registerSchema = z.object({
     name: z.string().min(1).max(100),
     email: z.string().email(),
-    phone: z.string().min(10),
+    phone: z.preprocess((value) => {
+        if (typeof value === "string") {
+            const digits = value.trim();
+            if (/^[0-9]{10}$/.test(digits)) {
+                return Number(digits);
+            }
+            return NaN;
+        }
+        if (typeof value === "number") {
+            return value;
+        }
+        return NaN;
+    }, z.number().int().gte(1000000000).lte(9999999999)),
     password: z.string().min(8),
     aadhaarNumber: z.string().min(12).max(14),
     panNumber: z.string().length(10).regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/),

@@ -14,7 +14,7 @@ export type KycStatus = "PENDING" | "VERIFIED" | "REJECTED";
 export interface IUser extends Document {
     name: string;
     email: string;
-    phone: string;
+    phone: number;
     passwordHash: string;
     role: Role;
     aadhaarHash: string;
@@ -37,7 +37,7 @@ const UserSchema = new Schema<IUser>(
     {
         name: { type: String, required: true, trim: true, maxlength: 100 },
         email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
-        phone: { type: String, required: true, trim: true },
+        phone: { type: Number, required: true, unique: false, index: false },
         passwordHash: { type: String, required: true },
         role: { type: String, enum: ["CITIZEN", "GOVERNMENT", "ADMIN"], default: "CITIZEN" },
         aadhaarHash: { type: String, required: true, unique: true, index: true },

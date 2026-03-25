@@ -7,7 +7,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  phone?: string;
+  phone?: number;
   role: Role;
   walletAddress?: string;
   isVerified?: boolean;

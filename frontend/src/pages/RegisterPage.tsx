@@ -10,7 +10,7 @@ import { authApi } from "../api/auth.api";
 const step1Schema = z.object({
   name: z.string().min(1, "Name required").max(100),
   email: z.string().email("Invalid email"),
-  phone: z.string().min(10, "Min 10 digits"),
+  phone: z.string().length(10, "Phone must be exactly 10 digits").regex(/^[0-9]{10}$/, "Phone must contain digits only"),
 });
 
 const step2Schema = z.object({
@@ -64,7 +64,7 @@ export default function RegisterPage() {
       const payload = {
         name: formData.name as string,
         email: formData.email as string,
-        phone: formData.phone as string,
+        phone: Number(formData.phone),
         password: data.password,
         aadhaarNumber: formData.aadhaarNumber as string,
         panNumber: formData.panNumber as string,
@@ -135,7 +135,10 @@ export default function RegisterPage() {
                 <input
                   {...form1.register("phone")}
                   className="input-field"
-                  placeholder="9876543210"
+                  placeholder="123456789"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
                 />
                 {form1.formState.errors.phone ? (
                   <p className="err">{form1.formState.errors.phone.message}</p>
