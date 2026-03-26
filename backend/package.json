@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "seed:mock": "tsx src/scripts/seed-mock-data.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
