@@ -94,12 +94,12 @@ router.post("/login", validate({ body: loginSchema }), async (req: Request, res:
 
     const user = await User.findByEmail(email);
     if (!user) {
-        return res.status(401).json({ success: false, message: "Invalid email or password." });
+        return res.status(401).json({ success: false, message: "Email is incorrect or not registered." });
     }
 
     const valid = await user.comparePassword(password);
     if (!valid) {
-        return res.status(401).json({ success: false, message: "Invalid email or password." });
+        return res.status(401).json({ success: false, message: "Password is incorrect." });
     }
 
     const secret = process.env.JWT_SECRET || "change-me-in-production";

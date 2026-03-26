@@ -25,6 +25,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isLoading, setIsLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const {
     register,
@@ -36,6 +37,8 @@ export default function LoginPage() {
 
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
+    setServerError(null);
+
     try {
       await login(data.email, data.password);
       toast.success("Logged in successfully!");
@@ -44,7 +47,19 @@ export default function LoginPage() {
       const user = JSON.parse(localStorage.getItem("user") || "{}") as { role?: string };
       navigate(from || (user.role ? ROLE_REDIRECT[user.role] : undefined) || "/dashboard", { replace: true });
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Login failed");
+      const serverMessage =
+        err?.response?.data?.message ||
+        (typeof err?.response?.data === "string" ? err.response.data : undefined) ||
+        err?.message ||
+        "Login failed";
+
+      const finalMessage =
+        err?.response?.status === 429
+          ? "Too many login attempts. Please wait 15 minutes and try again."
+          : serverMessage;
+
+      setServerError(finalMessage);
+      toast.error(finalMessage);
     } finally {
       setIsLoading(false);
     }
@@ -60,6 +75,7 @@ export default function LoginPage() {
 
         <div className="bg-gray-900 rounded-2xl p-8 border border-gray-800">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {serverError ? <p className="text-red-400 text-sm mb-2">{serverError}</p> : null}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
               <div className="relative">
