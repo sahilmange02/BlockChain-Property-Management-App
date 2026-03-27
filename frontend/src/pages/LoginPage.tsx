@@ -4,8 +4,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Lock, Loader, Mail } from "lucide-react";
+import { Lock, Loader, Mail, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { authApi } from "../api/auth.api";
 
 const schema = z.object({
   email: z.string().email("Invalid email"),
@@ -26,14 +27,19 @@ export default function LoginPage() {
   const location = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
 
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
+
+  const emailValue = watch("email");
 
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
@@ -59,9 +65,33 @@ export default function LoginPage() {
           : serverMessage;
 
       setServerError(finalMessage);
+
+      // Check if it's an unverified email error
+      if (err?.response?.status === 403 && serverMessage.includes("verify your email")) {
+        setUnverifiedEmail(data.email);
+      }
+
       toast.error(finalMessage);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendEmail = async () => {
+    if (!unverifiedEmail) return;
+    setResending(true);
+    try {
+      const response = await authApi.resendVerificationEmail(unverifiedEmail);
+      if (response.success) {
+        toast.success("Verification email sent! Check your inbox.");
+        setUnverifiedEmail(null);
+      } else {
+        toast.error(response.message || "Failed to resend email");
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to resend email");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -75,7 +105,36 @@ export default function LoginPage() {
 
         <div className="bg-gray-900 rounded-2xl p-8 border border-gray-800">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            {serverError ? <p className="text-red-400 text-sm mb-2">{serverError}</p> : null}
+            {serverError && (
+              <div className={`p-4 rounded-lg text-sm flex gap-3 ${
+                unverifiedEmail 
+                  ? "bg-blue-900/20 border border-blue-800 text-blue-200" 
+                  : "bg-red-900/20 border border-red-800 text-red-200"
+              }`}>
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p>{serverError}</p>
+                  {unverifiedEmail && (
+                    <button
+                      type="button"
+                      onClick={handleResendEmail}
+                      disabled={resending}
+                      className="mt-3 text-blue-300 hover:text-blue-200 text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {resending ? (
+                        <>
+                          <Loader size={14} className="animate-spin" /> Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Mail size={14} /> Resend Verification Email
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
               <div className="relative">

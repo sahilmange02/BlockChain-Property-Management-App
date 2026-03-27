@@ -79,7 +79,7 @@ export default function RegisterPage() {
         panNumber: payload.panNumber,
       });
 
-      toast.success("Registration successful! Please login.");
+      toast.success("Registration successful! Check your email to verify your account.");
       navigate("/login");
     } catch (err: any) {
       toast.error(err?.response?.data?.message || "Registration failed");

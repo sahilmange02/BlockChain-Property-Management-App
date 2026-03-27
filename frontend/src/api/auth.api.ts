@@ -34,5 +34,15 @@ export const authApi = {
     const res = await api.get("/auth/me");
     return res.data.user as User;
   },
+
+  verifyEmail: async (token: string) => {
+    const res = await api.post("/auth/verify-email", { token });
+    return res.data as { success: boolean; message: string };
+  },
+
+  resendVerificationEmail: async (email: string) => {
+    const res = await api.post("/auth/resend-verification-email", { email });
+    return res.data as { success: boolean; message: string };
+  },
 };
 
