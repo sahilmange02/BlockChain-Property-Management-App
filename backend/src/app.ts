@@ -24,6 +24,7 @@ import propertyRoutes from "./routes/property.routes.js";
 import transferRoutes from "./routes/transfer.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import ipfsRoutes from "./routes/ipfs.routes.js";
+import kycRoutes from "./routes/kyc.routes.js";
 
 const app = express();
 
@@ -65,6 +66,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/transfers", transferRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/kyc", kycRoutes);
 app.use("/api/ipfs", ipfsRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date() }));

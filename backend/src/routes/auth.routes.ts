@@ -8,10 +8,12 @@
 import { Router, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { ethers } from "ethers";
+import crypto from "crypto";
 import { z } from "zod";
 import User, { hashSensitiveData } from "../models/User.js";
 import { verifyJWT } from "../middleware/auth.middleware.js";
 import { validate } from "../middleware/validate.middleware.js";
+import { emailService } from "../config/email.js";
 
 const router = Router();
 
@@ -68,6 +70,10 @@ router.post("/register", validate({ body: registerSchema }), async (req: Request
         return res.status(400).json({ success: false, message: "PAN number already registered." });
     }
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
     const user = new User({
         name,
         email,
@@ -75,11 +81,15 @@ router.post("/register", validate({ body: registerSchema }), async (req: Request
         passwordHash: password,
         aadhaarHash,
         panHash,
+        last4Aadhaar: aadhaarNumber.slice(-4),
+        last4Pan: panNumber.slice(-4),
+        emailVerificationToken: verificationToken,
+        emailVerificationTokenExpiry: verificationTokenExpiry,
     });
     await user.save();
 
-    // Stub: send verification email
-    console.log(`[STUB] Verification email would be sent to: ${email}`);
+    // Send verification email
+    await emailService.sendVerificationEmail(email, verificationToken);
 
     res.status(201).json({
         success: true,
@@ -95,6 +105,14 @@ router.post("/login", validate({ body: loginSchema }), async (req: Request, res:
     const user = await User.findByEmail(email);
     if (!user) {
         return res.status(401).json({ success: false, message: "Email is incorrect or not registered." });
+    }
+
+    if (!user.isVerified) {
+        return res.status(403).json({
+            success: false,
+            message: "Please verify your email before logging in.",
+            userId: user._id.toString(),
+        });
     }
 
     const valid = await user.comparePassword(password);
@@ -187,6 +205,59 @@ router.get("/me", verifyJWT, (req: Request, res: Response) => {
             kycStatus: u.kycStatus,
             createdAt: u.createdAt,
         },
+    });
+});
+
+// POST /api/auth/verify-email
+router.post("/verify-email", validate({ body: z.object({ token: z.string().min(1) }) }), async (req: Request, res: Response) => {
+    const { token } = req.body;
+
+    const user = await User.findOne({
+        emailVerificationToken: token,
+        emailVerificationTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+        return res.status(400).json({ success: false, message: "Invalid or expired verification token." });
+    }
+
+    user.isVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationTokenExpiry = undefined;
+    await user.save();
+
+    res.json({
+        success: true,
+        message: "Email verified successfully.",
+    });
+});
+
+// POST /api/auth/resend-verification-email
+router.post("/resend-verification-email", validate({ body: z.object({ email: z.string().email() }) }), async (req: Request, res: Response) => {
+    const { email } = req.body;
+
+    const user = await User.findByEmail(email);
+    if (!user) {
+        return res.status(400).json({ success: false, message: "User not found." });
+    }
+
+    if (user.isVerified) {
+        return res.status(400).json({ success: false, message: "Email already verified." });
+    }
+
+    // Generate new token
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    user.emailVerificationToken = verificationToken;
+    user.emailVerificationTokenExpiry = verificationTokenExpiry;
+    await user.save();
+
+    await emailService.sendVerificationEmail(email, verificationToken);
+
+    res.json({
+        success: true,
+        message: "Verification email sent. Please check your inbox.",
     });
 });
 

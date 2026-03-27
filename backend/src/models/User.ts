@@ -19,9 +19,14 @@ export interface IUser extends Document {
     role: Role;
     aadhaarHash: string;
     panHash: string;
+    last4Aadhaar?: string; // Last 4 digits of Aadhaar for display
+    last4Pan?: string; // Last 4 chars of PAN for display
     walletAddress?: string;
     isVerified: boolean;
+    emailVerificationToken?: string; // For email verification
+    emailVerificationTokenExpiry?: Date;
     kycStatus: KycStatus;
+    kycRejectionReason?: string; // Reason if KYC is rejected
     failedLoginAttempts: number;
     lockUntil?: Date;
     createdAt: Date;
@@ -42,9 +47,14 @@ const UserSchema = new Schema<IUser>(
         role: { type: String, enum: ["CITIZEN", "GOVERNMENT", "ADMIN"], default: "CITIZEN" },
         aadhaarHash: { type: String, required: true, unique: true, index: true },
         panHash: { type: String, required: true, unique: true, index: true },
+        last4Aadhaar: { type: String },
+        last4Pan: { type: String },
         walletAddress: { type: String, unique: true, sparse: true, index: true },
         isVerified: { type: Boolean, default: false },
+        emailVerificationToken: { type: String },
+        emailVerificationTokenExpiry: { type: Date },
         kycStatus: { type: String, enum: ["PENDING", "VERIFIED", "REJECTED"], default: "PENDING" },
+        kycRejectionReason: { type: String },
         failedLoginAttempts: { type: Number, default: 0 },
         lockUntil: { type: Date },
     },

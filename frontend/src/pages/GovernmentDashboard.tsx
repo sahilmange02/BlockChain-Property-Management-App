@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWeb3 } from "../context/Web3Context";
 import { adminApi } from "../api/admin.api";
 import { transferApi } from "../api/transfer.api";
+import { kycApi } from "../api/kyc.api";
 import type { Property, Transfer } from "../types";
 import StatusBadge from "../components/common/StatusBadge";
 import toast from "react-hot-toast";
@@ -12,8 +13,9 @@ import LoadingSpinner from "../components/common/LoadingSpinner";
 export default function GovernmentDashboard() {
   const { contract } = useWeb3();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"properties" | "transfers">("properties");
+  const [activeTab, setActiveTab] = useState<"properties" | "transfers" | "kyc">("properties");
   const [rejectModal, setRejectModal] = useState<{ id: number } | null>(null);
+  const [kycRejectModal, setKycRejectModal] = useState<{ userId: string; userName: string } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [processingId, setProcessingId] = useState<number | string | null>(null);
 
@@ -26,6 +28,12 @@ export default function GovernmentDashboard() {
   const pendingTransfers = useQuery({
     queryKey: ["admin", "pending-transfers"],
     queryFn: adminApi.getPendingTransfers,
+    refetchInterval: 15000,
+  });
+
+  const pendingKyc = useQuery({
+    queryKey: ["kyc", "pending-users"],
+    queryFn: kycApi.getPendingKycUsers,
     refetchInterval: 15000,
   });
 
@@ -111,6 +119,36 @@ export default function GovernmentDashboard() {
     }
   };
 
+  const handleApproveKyc = async (userId: string) => {
+    setProcessingId(userId);
+    try {
+      await kycApi.approveKyc(userId);
+      toast.success("KYC approved!");
+      queryClient.invalidateQueries({ queryKey: ["kyc", "pending-users"] });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Approval failed");
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleRejectKyc = async () => {
+    if (!kycRejectModal || !rejectReason.trim()) return;
+    const { userId } = kycRejectModal;
+    setProcessingId(userId);
+    try {
+      await kycApi.rejectKyc(userId, rejectReason);
+      toast.success("KYC rejected");
+      setKycRejectModal(null);
+      setRejectReason("");
+      queryClient.invalidateQueries({ queryKey: ["kyc", "pending-users"] });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Rejection failed");
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -145,6 +183,14 @@ export default function GovernmentDashboard() {
           }`}
         >
           Pending Transfers ({pendingTransfers.data?.transfers?.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab("kyc")}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === "kyc" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"
+          }`}
+        >
+          Pending KYC ({pendingKyc.data?.count || 0})
         </button>
       </div>
 
@@ -253,6 +299,62 @@ export default function GovernmentDashboard() {
         </div>
       ) : null}
 
+      {activeTab === "kyc" ? (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          {pendingKyc.isLoading ? (
+            <div className="p-8 text-center text-gray-400">
+              <LoadingSpinner label="Loading..." />
+            </div>
+          ) : pendingKyc.data?.users?.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">No pending KYC verifications</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800 text-gray-400 text-left">
+                <tr>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Email</th>
+                  <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Aadhaar (Last 4)</th>
+                  <th className="px-4 py-3">PAN (Last 4)</th>
+                  <th className="px-4 py-3">Registered</th>
+                  <th className="px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {pendingKyc.data!.users.map((user) => (
+                  <tr key={user._id} className="text-gray-300 hover:bg-gray-800/50">
+                    <td className="px-4 py-3 font-medium">{user.name}</td>
+                    <td className="px-4 py-3 text-xs">{user.email}</td>
+                    <td className="px-4 py-3">{user.phone}</td>
+                    <td className="px-4 py-3 font-mono text-xs">****{user.last4Aadhaar}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-400">{user.last4Pan}***</td>
+                    <td className="px-4 py-3 text-xs">{new Date(user.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => handleApproveKyc(user._id)}
+                          disabled={processingId === user._id}
+                          className="flex items-center gap-1 px-3 py-1 bg-green-700 hover:bg-green-600 text-white text-xs rounded disabled:opacity-50"
+                        >
+                          {processingId === user._id ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => setKycRejectModal({ userId: user._id, userName: user.name })}
+                          className="flex items-center gap-1 px-3 py-1 bg-red-700 hover:bg-red-600 text-white text-xs rounded"
+                        >
+                          <XCircle size={12} /> Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : null}
+
       {rejectModal ? (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-md">
@@ -276,6 +378,39 @@ export default function GovernmentDashboard() {
               </button>
               <button
                 onClick={handleReject}
+                disabled={!rejectReason.trim()}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg font-medium disabled:opacity-40"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {kycRejectModal ? (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-white font-semibold text-lg mb-4">Reject KYC - {kycRejectModal.userName}</h3>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="w-full input-field"
+              rows={4}
+              placeholder="Reason for rejection..."
+            />
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => {
+                  setKycRejectModal(null);
+                  setRejectReason("");
+                }}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectKyc}
                 disabled={!rejectReason.trim()}
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg font-medium disabled:opacity-40"
               >
